@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Outlet, useOutletContext, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bell,
@@ -113,12 +113,12 @@ function Sidebar({ onNavigate, user, storage, breakdown, onLogout }: { onNavigat
   const progress = total > 0 ? Math.min(100, (used / total) * 100) : 0
   const [profileImageUrl, setProfileImageUrl] = useState('')
   const [avatarError, setAvatarError] = useState(false)
-  const items = [
+  const items = useMemo(() => [
     ['Photo', formatBytes(breakdown.photo), 'bg-lime-500'],
     ['Video', formatBytes(breakdown.video), 'bg-yellow-400'],
     ['Document', formatBytes(breakdown.document), 'bg-cyan-400'],
     ['Free Storage', formatBytes(storage?.availableBytes), 'bg-orange-500'],
-  ]
+  ], [breakdown.document, breakdown.photo, breakdown.video, storage?.availableBytes])
 
   useEffect(() => {
     setAvatarError(false)
@@ -385,7 +385,7 @@ export function DriveLayout() {
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-white">
       <div className="flex min-h-screen w-full flex-col bg-white lg:h-screen lg:overflow-hidden lg:flex-row">
-        <div className="hidden lg:block lg:h-screen lg:shrink-0">
+        <div className={cn('hidden h-screen shrink-0 lg:block', sidebarOpen ? 'lg:block' : 'lg:hidden')}>
           <Sidebar user={user} storage={storage} breakdown={breakdown} onLogout={logout} />
         </div>
         <div className={cn('fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden', sidebarOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} onClick={() => setSidebarOpen(false)} />
@@ -399,9 +399,9 @@ export function DriveLayout() {
         </div>
         <section className="min-w-0 flex-1 p-4 sm:p-6 lg:h-screen lg:overflow-y-auto lg:p-8">
           <header className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center justify-between gap-3 lg:hidden">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <Button variant="outline" size="icon" aria-label="Open sidebar" onClick={() => setSidebarOpen(true)}>
+                <Button variant="outline" size="icon" aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} onClick={() => setSidebarOpen((open) => !open)}>
                   <Menu className="h-5 w-5" />
                 </Button>
                 <div className="flex min-w-0 items-center gap-2">
