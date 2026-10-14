@@ -78,7 +78,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           'Content-Range': `bytes ${startOffset}-${endOffset - 1}/${file.size}`,
           'Content-Length': String(chunk.size)
         },
-        body: chunk
+        body: chunk,
+        signal: AbortSignal.timeout(90000)
       })
 
       if (!response.ok) {
@@ -91,7 +92,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         break
       }
 
-      startOffset = Number(resData.offset)
+      const nextOffset = Number(resData.offset)
+      if (!Number.isFinite(nextOffset) || nextOffset < startOffset || nextOffset > file.size) {
+        throw new Error(`Invalid upload offset returned for ${file.name}`)
+      }
+
+      startOffset = nextOffset
       const percent = Math.min(99, Math.round((startOffset / file.size) * 100))
       onProgress(percent)
     }
@@ -108,7 +114,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       files: filesToUpload.map(f => ({ name: f.name, size: f.size, percent: 0, status: 'uploading' }))
     })
 
-    const workers = Math.min(3, filesToUpload.length)
+    const workers = Math.min(2, filesToUpload.length)
     let nextIndex = 0
 
     const worker = async () => {

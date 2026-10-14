@@ -399,27 +399,13 @@ export function DriveLayout() {
         </div>
         <section className="min-w-0 flex-1 p-4 sm:p-6 lg:h-screen lg:overflow-y-auto lg:p-8">
           <header className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <Button variant="outline" size="icon" aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} onClick={() => setSidebarOpen((open) => !open)}>
-                  <Menu className="h-5 w-5" />
-                </Button>
-                <div className="flex min-w-0 items-center gap-2">
-                  <BrandLogo className="h-9 w-9 shrink-0" />
-                  <span className="truncate text-xl font-extrabold tracking-tight">9Drive</span>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="icon" aria-label="Toggle theme" onClick={toggleTheme}>
-                  {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                </Button>
-                <div className="relative shrink-0">
-                  <Button variant="outline" size="icon" className="relative" aria-label="System info" aria-expanded={infoOpen} onClick={() => setInfoOpen(!infoOpen)}>
-                    <Bell className="h-5 w-5" />
-                    {!infoOpen ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-600" /> : null}
-                  </Button>
-                  {infoOpen ? <SystemInfoDropdown storage={storage} /> : null}
-                </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="icon" aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} onClick={() => setSidebarOpen((open) => !open)}>
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="flex min-w-0 items-center gap-2">
+                <BrandLogo className="h-9 w-9 shrink-0" />
+                <span className="truncate text-xl font-extrabold tracking-tight">9Drive</span>
               </div>
             </div>
             <div className="relative w-full min-w-0 flex-1 lg:max-w-sm xl:max-w-xl">
@@ -495,6 +481,18 @@ export function DriveLayout() {
                 {headerActions}
               </div>
             ) : null}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <Button variant="outline" size="icon" aria-label="Toggle theme" onClick={toggleTheme}>
+                {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+              </Button>
+              <div className="relative shrink-0">
+                <Button variant="outline" size="icon" className="relative" aria-label="System info" aria-expanded={infoOpen} onClick={() => setInfoOpen(!infoOpen)}>
+                  <Bell className="h-5 w-5" />
+                  {!infoOpen ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-600" /> : null}
+                </Button>
+                {infoOpen ? <SystemInfoDropdown storage={storage} /> : null}
+              </div>
+            </div>
           </header>
           <Outlet context={{ setHeaderActions } satisfies DriveLayoutContext} />
         </section>
