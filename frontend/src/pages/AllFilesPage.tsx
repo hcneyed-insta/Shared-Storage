@@ -455,8 +455,11 @@ export function AllFilesPage() {
     const link = document.createElement('a')
     link.href = url
     link.download = activeFile.name
+    link.rel = 'noopener noreferrer'
+    document.body.appendChild(link)
     link.click()
-    URL.revokeObjectURL(url)
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     setContextMenu({ x: 0, y: 0, file: null })
   }
 
@@ -480,8 +483,11 @@ export function AllFilesPage() {
       const link = document.createElement('a')
       link.href = url
       link.download = '9drive-download.zip'
+      link.rel = 'noopener noreferrer'
+      document.body.appendChild(link)
       link.click()
-      URL.revokeObjectURL(url)
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       clearSelection()
       setMessage('Batch download complete.')
     } catch (error) {
