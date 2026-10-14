@@ -61,7 +61,7 @@ function SystemInfoDropdown({ storage }: { storage: any }) {
   const activeGoogle = storage?.accounts?.filter((a: any) => a.provider === 'google_drive' && a.status === 'connected') ?? []
 
   return (
-    <div className="absolute right-0 top-12 z-50 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/15">
+    <div className="absolute right-0 top-12 z-50 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-2xl shadow-slate-950/15 backdrop-blur-2xl">
       <div className="border-b border-slate-200 px-4 py-3 bg-slate-50/50">
         <p className="text-sm font-extrabold text-slate-950">Workspace Status & Info</p>
         <p className="text-xs text-slate-500">Overview of your connections & guidelines</p>
@@ -495,16 +495,6 @@ export function DriveLayout() {
                 {headerActions}
               </div>
             ) : null}
-             <div className="relative hidden flex-wrap gap-2 lg:flex shrink-0">
-              <Button variant="outline" size="icon" aria-label="Toggle theme" onClick={toggleTheme}>
-                {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-              </Button>
-              <Button variant="outline" size="icon" className="relative" aria-label="System info" aria-expanded={infoOpen} onClick={() => setInfoOpen(!infoOpen)}>
-                <Bell className="h-5 w-5" />
-                {!infoOpen ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-600" /> : null}
-              </Button>
-              {infoOpen ? <SystemInfoDropdown storage={storage} /> : null}
-            </div>
           </header>
           <Outlet context={{ setHeaderActions } satisfies DriveLayoutContext} />
         </section>

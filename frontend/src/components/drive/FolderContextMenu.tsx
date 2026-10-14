@@ -45,8 +45,10 @@ function MenuItem({ icon: Icon, label, onClick, danger = false, kbd }: { icon: R
 
 export function FolderContextMenu({ x, y, folder, onClose, onCut, onRename, onInvite, onCopyLink, onDelete }: Props) {
   if (!folder) return null
-  const safeX = Math.max(12, Math.min(x, window.innerWidth - 228))
-  const safeY = Math.max(12, Math.min(y, window.innerHeight - 280))
+  const menuWidth = 224
+  const menuHeight = 300
+  const safeX = Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12))
+  const safeY = Math.max(12, Math.min(y, window.innerHeight - menuHeight - 12))
 
   return (
     <>

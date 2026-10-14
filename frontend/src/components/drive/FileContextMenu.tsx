@@ -64,8 +64,10 @@ function MenuItem({ icon: Icon, label, onClick, danger = false, kbd }: { icon: R
 export function FileContextMenu({ x, y, file, onClose, onView, onDownload, onRename, onMove, onDetails, onShare, onCopyLink, onInvite, onDelete }: Props) {
   if (!file) return null
 
-  const safeX = Math.max(12, Math.min(x, window.innerWidth - 228))
-  const safeY = Math.max(12, Math.min(y, window.innerHeight - 430))
+  const menuWidth = 224
+  const menuHeight = 470
+  const safeX = Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12))
+  const safeY = Math.max(12, Math.min(y, window.innerHeight - menuHeight - 12))
   const kindColor = kindColors[file.kind] ?? 'bg-slate-500'
   const kindLabel = kindLabels[file.kind] ?? 'File'
 
