@@ -482,18 +482,13 @@ export function AllFilesPage() {
           return
         }
       }
-      const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
-      if (!response.ok) throw new Error('Download failed')
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
+      const data = await apiFetch<{ path: string }>(`/files/${activeFile.id}/download-token`, { method: 'POST' })
       const link = document.createElement('a')
-      link.href = url
-      link.download = activeFile.name
+      link.href = `${API_URL}${data.path}`
       link.rel = 'noopener noreferrer'
       document.body.appendChild(link)
       link.click()
       link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       setContextMenu({ x: 0, y: 0, file: null })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Download failed')

@@ -1,5 +1,7 @@
 import type { Response } from 'express'
 import type { ConnectedAccount, File } from '@prisma/client'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { getAuthedGoogleClient } from '../google/google.service.js'
 
 type FileWithAccount = File & { connectedAccount: ConnectedAccount }
@@ -66,15 +68,5 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
     res.end()
     return
   }
-  const reader = response.body.getReader()
-  async function pump(): Promise<void> {
-    const { done, value } = await reader.read()
-    if (done) {
-      res.end()
-      return
-    }
-    res.write(Buffer.from(value))
-    return pump()
-  }
-  return pump()
+  return pipeline(Readable.fromWeb(response.body as any), res)
 }

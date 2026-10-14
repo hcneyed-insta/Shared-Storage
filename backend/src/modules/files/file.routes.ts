@@ -18,6 +18,20 @@ import { createAuditLog } from '../../utils/audit.js'
 
 export const fileRouter = Router()
 
+fileRouter.get('/download/:token', async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const download = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!download || download.file.status !== 'active') return res.status(404).json({ code: 'DOWNLOAD_NOT_FOUND', message: 'Download link not found or expired.' })
+    return streamProviderFile(download.file, req.headers.range, res, { disposition: 'attachment' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 fileRouter.get('/preview/:token', async (req, res, next) => {
   try {
     const token = String(req.params.token)
@@ -395,6 +409,18 @@ fileRouter.get('/:id/download', async (req: AuthRequest, res, next) => {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
     return streamProviderFile(file, req.headers.range, res, { disposition: 'attachment' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.post('/:id/download-token', async (req: AuthRequest, res, next) => {
+  try {
+    const fileId = String(req.params.id)
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const token = randomToken(32)
+    await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 5 * 60_000) } })
+    return res.status(201).json({ path: `/files/download/${token}` })
   } catch (error) {
     return next(error)
   }
