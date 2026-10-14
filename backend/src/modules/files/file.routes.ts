@@ -6,7 +6,7 @@ import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { hashToken, randomToken } from '../../utils/crypto.js'
 import { getAuthedGoogleClient, syncGoogleAppFolderFiles, syncGoogleQuota } from '../google/google.service.js'
-import { deleteS3Object, syncS3Quota, createS3Client, getS3ConfigForAccount } from '../s3/s3.service.js'
+import { deleteS3Object, syncS3Quota, createS3Client, getS3ConfigForAccount, getDirectS3FileUrl } from '../s3/s3.service.js'
 import { streamProviderFile } from './stream-file.js'
 import { googleDownloadExportMimeTypes, normalizeHeaders, withExtension } from './stream-google-file.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
@@ -353,11 +353,23 @@ fileRouter.delete('/:id/share', async (req: AuthRequest, res, next) => {
 fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' }, include: { connectedAccount: true } })
     const token = randomToken(32)
     await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
     const path = `/files/preview/${token}`
-    return res.status(201).json({ path, url: `${req.protocol}://${req.get('host')}${path}` })
+    return res.status(201).json({ path, url: `${req.protocol}://${req.get('host')}${path}`, provider: file.provider })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.get('/:id/direct-url', async (req: AuthRequest, res, next) => {
+  try {
+    const fileId = String(req.params.id)
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    const disposition = z.enum(['inline', 'attachment']).catch('attachment').parse((req.query.disposition ?? 'attachment'))
+    if (file.provider !== 's3') return res.json({ url: null, provider: file.provider })
+    return res.json({ url: await getDirectS3FileUrl(file, { disposition }), provider: file.provider })
   } catch (error) {
     return next(error)
   }
@@ -367,7 +379,7 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
-    if (file.provider === 's3') return res.json({ url: null })
+    if (file.provider === 's3') return res.json({ url: await getDirectS3FileUrl(file, { disposition: 'inline' }) })
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
 

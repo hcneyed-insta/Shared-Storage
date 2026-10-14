@@ -34,17 +34,31 @@ function UnsupportedPreview({ file, downloadUrl }: { file: PublicFile; downloadU
 
 export function PublicFilePage({ embed = false }: { embed?: boolean }) {
   const { token } = useParams()
-  const [file, setFile] = useState<PublicFile | null>(null)
+  const [file, setFile] = useState<PublicFile & { provider?: string } | null>(null)
   const [failed, setFailed] = useState(false)
+  const [directPreviewUrl, setDirectPreviewUrl] = useState('')
+  const [directDownloadUrl, setDirectDownloadUrl] = useState('')
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const previewUrl = `${API_URL}/public/files/${token}/preview`
-  const downloadUrl = `${API_URL}/public/files/${token}/download`
+  const previewUrl = directPreviewUrl || `${API_URL}/public/files/${token}/preview`
+  const downloadUrl = directDownloadUrl || `${API_URL}/public/files/${token}/download`
   const kind = getPreviewKind(file?.mimeType)
 
   useEffect(() => {
     setFailed(false)
-    apiFetch<{ file: PublicFile }>(`/public/files/${token}`, { skipAuth: true })
-      .then((data) => setFile(data.file))
+    setDirectPreviewUrl('')
+    setDirectDownloadUrl('')
+    apiFetch<{ file: PublicFile & { provider?: string } }>(`/public/files/${token}`, { skipAuth: true })
+      .then((data) => {
+        setFile(data.file)
+        if (data.file.provider === 's3') {
+          apiFetch<{ url: string | null }>(`/public/files/${token}/direct-url?disposition=inline`, { skipAuth: true })
+            .then((result) => result.url && setDirectPreviewUrl(result.url))
+            .catch(() => undefined)
+          apiFetch<{ url: string | null }>(`/public/files/${token}/direct-url?disposition=attachment`, { skipAuth: true })
+            .then((result) => result.url && setDirectDownloadUrl(result.url))
+            .catch(() => undefined)
+        }
+      })
       .catch(() => {
         setFile(null)
         setFailed(true)

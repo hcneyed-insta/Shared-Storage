@@ -1,4 +1,5 @@
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { Upload } from '@aws-sdk/lib-storage'
 import type { ConnectedAccount, File, S3StorageConfig } from '@prisma/client'
 import type { Response } from 'express'
@@ -84,6 +85,18 @@ export async function syncS3Quota(accountId: string) {
       lastSyncedAt: new Date(),
     },
   })
+}
+
+export async function getDirectS3FileUrl(file: FileWithAccount, options: StreamOptions = {}, expiresInSeconds = 300) {
+  const config = await getS3ConfigForAccount(file.connectedAccountId)
+  const client = createS3Client(config)
+  const command = new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: file.providerFileId,
+    ResponseContentType: file.mimeType || 'application/octet-stream',
+    ResponseContentDisposition: `${options.disposition ?? 'attachment'}; filename="${file.name.replaceAll('"', '')}"`,
+  })
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds })
 }
 
 export async function streamS3File(file: FileWithAccount, range: string | undefined, res: Response, options: StreamOptions = {}) {

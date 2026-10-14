@@ -448,9 +448,16 @@ export function AllFilesPage() {
     setPreviewOpen(true)
     setContextMenu({ x: 0, y: 0, file: null })
     try {
-      const data = await apiFetch<{ path?: string; url: string }>(`/files/${activeFile.id}/preview-token`, { method: 'POST' })
+      if (activeFile.accountProvider === 's3') {
+        const data = await apiFetch<{ url: string | null }>(`/files/${activeFile.id}/direct-url?disposition=inline`)
+        if (data.url) {
+          setPreviewUrl(data.url)
+          return
+        }
+      }
+      const data = await apiFetch<{ path?: string; url: string; provider?: string }>(`/files/${activeFile.id}/preview-token`, { method: 'POST' })
       const previewPath = data.path ?? new URL(data.url).pathname
-      setPreviewUrl(`${API_URL}${previewPath}`)
+      setPreviewUrl(data.provider === 's3' ? data.url : `${API_URL}${previewPath}`)
     } catch (error) {
       setPreviewError(error instanceof Error ? error.message : 'Failed to load preview')
     } finally {
@@ -460,19 +467,37 @@ export function AllFilesPage() {
 
   async function downloadFile() {
     if (!activeFile?.id) return
-    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
-    if (!response.ok) throw new Error('Download failed')
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = activeFile.name
-    link.rel = 'noopener noreferrer'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    setContextMenu({ x: 0, y: 0, file: null })
+    try {
+      if (activeFile.accountProvider === 's3') {
+        const data = await apiFetch<{ url: string | null }>(`/files/${activeFile.id}/direct-url?disposition=attachment`)
+        if (data.url) {
+          const link = document.createElement('a')
+          link.href = data.url
+          link.download = activeFile.name
+          link.rel = 'noopener noreferrer'
+          document.body.appendChild(link)
+          link.click()
+          link.remove()
+          setContextMenu({ x: 0, y: 0, file: null })
+          return
+        }
+      }
+      const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+      if (!response.ok) throw new Error('Download failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = activeFile.name
+      link.rel = 'noopener noreferrer'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setContextMenu({ x: 0, y: 0, file: null })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Download failed')
+    }
   }
 
   async function downloadBatchAsZip() {
