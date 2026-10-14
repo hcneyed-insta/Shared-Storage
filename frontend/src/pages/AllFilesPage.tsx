@@ -79,6 +79,7 @@ export function AllFilesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeFolderId = searchParams.get('folderId')
   const searchQuery = searchParams.get('q')?.trim() ?? ''
+  const [localSearchText, setLocalSearchText] = useState(searchQuery)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [folderOpen, setFolderOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -201,6 +202,31 @@ export function AllFilesPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    setLocalSearchText(searchQuery)
+  }, [searchQuery])
+
+  useEffect(() => {
+    const trimmed = localSearchText.trim()
+    const nextQuery = trimmed ? trimmed : null
+    const nextParams = new URLSearchParams(searchParams)
+
+    if (nextQuery) {
+      nextParams.set('q', nextQuery)
+    } else {
+      nextParams.delete('q')
+    }
+
+    const currentQuery = searchQuery || null
+    if (currentQuery === nextQuery) return
+
+    const timer = window.setTimeout(() => {
+      setSearchParams(nextParams, { replace: true })
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [localSearchText, searchParams, searchQuery, setSearchParams])
 
   useEffect(() => {
     loadAll().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to load files'))
