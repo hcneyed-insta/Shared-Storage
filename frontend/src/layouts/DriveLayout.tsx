@@ -38,7 +38,7 @@ const menu = [
   { label: 'All Files', icon: FileArchive, href: '/all-files' },
   { label: 'Quota Tracker', icon: Gauge, href: '/quota' },
   { label: 'Shared With Me', icon: Share2, href: '/shared' },
-  { label: 'Starred', icon: Star, href: '/starred', disabled: true },
+  { label: 'Starred', icon: Star, href: '/starred' },
   { label: 'Recycle Bin', icon: Trash2, href: '/trash' },
   { label: 'Activity Log', icon: History, href: '/activity' },
   { label: 'Setting', icon: Settings, href: '/settings' },
@@ -61,24 +61,24 @@ function SystemInfoDropdown({ storage }: { storage: any }) {
   const activeGoogle = storage?.accounts?.filter((a: any) => a.provider === 'google_drive' && a.status === 'connected') ?? []
 
   return (
-    <div className="absolute right-0 top-12 z-50 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-2xl shadow-slate-950/15 backdrop-blur-2xl">
-      <div className="border-b border-slate-200 px-4 py-3 bg-slate-50/50">
-        <p className="text-sm font-extrabold text-slate-950">Workspace Status & Info</p>
-        <p className="text-xs text-slate-500">Overview of your connections & guidelines</p>
+    <div className="absolute right-0 top-12 z-50 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-950/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+        <p className="text-sm font-extrabold text-slate-950 dark:text-slate-50">Workspace Status & Info</p>
+        <p className="text-xs text-slate-600 dark:text-slate-300">Connected storage and service status</p>
       </div>
       <div className="max-h-96 overflow-y-auto p-4 space-y-4">
         {/* Connection status */}
         <div>
           <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-emerald-500" /> Connection Status</h4>
           <div className="mt-2 space-y-2">
-            <div className="flex items-center justify-between text-xs rounded-xl bg-slate-50 p-2.5 border border-slate-100">
-              <span className="font-semibold text-slate-700">Google Drive accounts</span>
+            <div className="flex items-center justify-between text-xs rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-700 dark:bg-slate-800">
+              <span className="font-semibold text-slate-800 dark:text-slate-100">Google Drive accounts</span>
               <span className={activeGoogle.length > 0 ? "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-100" : "text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-bold border border-amber-100"}>
                 {activeGoogle.length} Connected
               </span>
             </div>
             {activeGoogle.map((acc: any) => (
-              <p key={acc.id} className="text-[11px] text-slate-500 truncate px-2.5">— {acc.email}</p>
+              <p key={acc.id} className="truncate px-2.5 text-[11px] text-slate-600 dark:text-slate-300">{acc.email}</p>
             ))}
           </div>
         </div>
@@ -86,20 +86,19 @@ function SystemInfoDropdown({ storage }: { storage: any }) {
         {/* Database & engine status */}
         <div>
           <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5 text-blue-500" /> Storage Engine</h4>
-          <div className="mt-2 text-xs text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-            <p>• <b>DB Type:</b> SQLite (Local Database)</p>
-            <p>• <b>Upload Folder:</b> Google Drive dedicated <code>9drive</code></p>
-            <p>• <b>Max Upload Size:</b> 5 GB per stream</p>
+          <div className="mt-2 space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <p><b>Database:</b> MySQL-compatible</p>
+            <p><b>File storage:</b> Connected Google Drive and S3 accounts</p>
           </div>
         </div>
 
         {/* Tips & Guides */}
         <div>
           <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><Info className="h-3.5 w-3.5 text-indigo-500" /> Usage Tips</h4>
-          <ul className="mt-2 text-[11px] text-slate-500 list-disc list-inside space-y-1 pl-1">
-            <li>Virtual folders exist only in your SQLite database.</li>
-            <li>Physical files are always uploaded straight to Google Drive.</li>
-            <li>Use the Sync button to fetch changes made directly on Drive.</li>
+          <ul className="mt-2 list-inside list-disc space-y-1 pl-1 text-[11px] text-slate-600 dark:text-slate-300">
+            <li>Folders organize files in 9Drive.</li>
+            <li>Uploads use the selected connected storage account.</li>
+            <li>Sync Google Drive to refresh files changed outside 9Drive.</li>
           </ul>
         </div>
       </div>
@@ -153,12 +152,7 @@ function Sidebar({ onNavigate, user, storage, breakdown, onLogout }: { onNavigat
       </div>
 
       <nav className="grid gap-1">
-        {menu.map((item) => item.disabled ? (
-          <button key={item.label} type="button" disabled className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-xl px-3.5 text-[13px] font-bold text-slate-400 opacity-60">
-            <item.icon className="h-4 w-4" />
-            {item.label}
-          </button>
-        ) : (
+        {menu.map((item) => (
           <NavLink key={item.label} to={item.href} onClick={onNavigate} className={({ isActive }) => cn('inline-flex h-10 items-center gap-2.5 rounded-xl px-3.5 text-[13px] font-bold transition-all border border-transparent', isActive ? 'bg-blue-600/10 text-blue-600 border-blue-600/10 shadow-sm' : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900')}>
             <item.icon className="h-4 w-4" />
             {item.label}
@@ -398,7 +392,7 @@ export function DriveLayout() {
           <Sidebar user={user} storage={storage} breakdown={breakdown} onLogout={logout} onNavigate={() => setSidebarOpen(false)} />
         </div>
         <section className="min-w-0 flex-1 p-4 sm:p-6 lg:h-screen lg:overflow-y-auto lg:p-8">
-          <header className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <header className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[auto_minmax(0,1fr)_auto]">
             <div className="flex items-center gap-3">
               <Button variant="outline" size="icon" aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} onClick={() => setSidebarOpen((open) => !open)}>
                 <Menu className="h-5 w-5" />
@@ -408,7 +402,7 @@ export function DriveLayout() {
                 <span className="truncate text-xl font-extrabold tracking-tight">9Drive</span>
               </div>
             </div>
-            <div className="relative w-full min-w-0 flex-1 lg:max-w-sm xl:max-w-xl">
+            <div className="relative col-span-2 w-full min-w-0 lg:col-span-1">
               <form onSubmit={searchFiles} className="relative w-full">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
                 <Input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="Search Documents" className="pl-11 pr-12" />
@@ -475,13 +469,8 @@ export function DriveLayout() {
                 </div>
               )}
             </div>
-            {/* Header actions injected by child pages */}
-            {headerActions ? (
-              <div className="hidden lg:flex items-center gap-2 shrink-0">
-                {headerActions}
-              </div>
-            ) : null}
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 lg:col-auto lg:row-auto">
+              {headerActions ? <div className="hidden shrink-0 items-center gap-2 lg:flex">{headerActions}</div> : null}
               <Button variant="outline" size="icon" aria-label="Toggle theme" onClick={toggleTheme}>
                 {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
               </Button>

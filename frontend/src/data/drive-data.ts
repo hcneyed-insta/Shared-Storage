@@ -25,6 +25,7 @@ export type FileItem = {
   location?: string
   archivedDate?: string
   starredDate?: string
+  starredAt?: string | null
   openedDate?: string
   folderId?: string | null
   folderName?: string | null

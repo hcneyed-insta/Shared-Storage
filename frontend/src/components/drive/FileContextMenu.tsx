@@ -1,4 +1,4 @@
-import { Copy, Download, Edit3, Eye, FolderInput, Info, Link2, Trash2, UserPlus } from 'lucide-react'
+import { Copy, Download, Edit3, Eye, FolderInput, Info, Link2, Star, Trash2, UserPlus } from 'lucide-react'
 import type { FileItem } from '@/data/drive-data'
 
 type Props = {
@@ -13,6 +13,7 @@ type Props = {
   onDetails: () => void
   onShare: () => void
   onCopyLink: () => void
+  onToggleStar: () => void
   onInvite: () => void
   onDelete: () => void
 }
@@ -61,11 +62,11 @@ function MenuItem({ icon: Icon, label, onClick, danger = false, kbd }: { icon: R
   )
 }
 
-export function FileContextMenu({ x, y, file, onClose, onView, onDownload, onRename, onMove, onDetails, onShare, onCopyLink, onInvite, onDelete }: Props) {
+export function FileContextMenu({ x, y, file, onClose, onView, onDownload, onRename, onMove, onDetails, onShare, onCopyLink, onToggleStar, onInvite, onDelete }: Props) {
   if (!file) return null
 
   const menuWidth = 224
-  const menuHeight = 470
+  const menuHeight = 520
   const safeX = Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12))
   const safeY = Math.max(12, Math.min(y, window.innerHeight - menuHeight - 12))
   const kindColor = kindColors[file.kind] ?? 'bg-slate-500'
@@ -134,6 +135,7 @@ export function FileContextMenu({ x, y, file, onClose, onView, onDownload, onRen
 
           <MenuItem icon={Link2} label="Share Link" onClick={handleShare} />
           <MenuItem icon={Copy} label="Copy Link" onClick={handleCopyLink} kbd="Ctrl+L" />
+          <MenuItem icon={Star} label={file.starredAt || file.starredDate ? 'Remove Star' : 'Add Star'} onClick={onToggleStar} />
           <MenuItem icon={UserPlus} label="Invite Member" onClick={onInvite} />
 
           <div className="my-1 h-px bg-slate-100 dark:bg-slate-800" />

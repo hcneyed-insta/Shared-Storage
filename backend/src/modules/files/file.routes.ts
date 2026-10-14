@@ -39,6 +39,9 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
     const query = z.object({
       folderId: z.string().optional(),
       q: z.string().trim().max(255).optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(50),
+      cursor: z.string().optional(),
+      starred: z.enum(['true', 'false']).optional(),
       kind: z.enum(['image', 'video', 'pdf', 'doc', 'archive']).optional(),
       accountId: z.string().optional(),
       minSize: z.coerce.number().optional(),
@@ -46,6 +49,11 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       startDate: z.string().datetime().optional(),
       endDate: z.string().datetime().optional()
     }).parse(req.query)
+
+    if (query.cursor) {
+      const cursorFile = await prisma.file.findFirst({ where: { id: query.cursor, userId: req.user!.id, status: 'active' }, select: { id: true } })
+      if (!cursorFile) return res.status(400).json({ code: 'INVALID_FILE_CURSOR', message: 'File list cursor is no longer valid.' })
+    }
 
     const typeFilters: Record<string, string[]> = {
       image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
@@ -59,6 +67,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       userId: req.user!.id,
       status: 'active',
       ...(query.folderId ? { folderId: query.folderId } : {}),
+      ...(query.starred === 'true' ? { starredAt: { not: null } } : query.starred === 'false' ? { starredAt: null } : {}),
       ...(query.q ? { name: { contains: query.q } } : {}),
       ...(query.accountId ? { connectedAccountId: query.accountId } : {}),
       ...(query.kind ? { mimeType: { in: typeFilters[query.kind] || [] } } : {}),
@@ -82,9 +91,16 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
         connectedAccount: { select: { id: true, email: true, provider: true } },
         folder: { select: { id: true, name: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
     })
-    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
+    const hasMore = files.length > query.limit
+    const pageFiles = hasMore ? files.slice(0, query.limit) : files
+    return res.json({
+      files: pageFiles.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })),
+      nextCursor: hasMore ? pageFiles[pageFiles.length - 1]?.id ?? null : null,
+    })
   } catch (error) {
     return next(error)
   }
@@ -267,13 +283,13 @@ fileRouter.get('/:id', async (req: AuthRequest, res, next) => {
 
 fileRouter.patch('/:id', async (req: AuthRequest, res, next) => {
   try {
-    const body = z.object({ name: z.string().min(1).max(255).optional(), folderId: z.string().nullable().optional() }).parse(req.body)
+    const body = z.object({ name: z.string().min(1).max(255).optional(), folderId: z.string().nullable().optional(), starred: z.boolean().optional() }).parse(req.body)
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
     const drive = file.provider === 's3' ? null : google.drive({ version: 'v3', auth: await getAuthedGoogleClient(file.connectedAccount) })
     if (body.folderId) await prisma.folder.findFirstOrThrow({ where: { id: body.folderId, userId: req.user!.id, deletedAt: null } })
     if (body.name && drive) await drive.files.update({ fileId: file.providerFileId, requestBody: { name: body.name } })
-    const updated = await prisma.file.update({ where: { id: file.id }, data: { ...(body.name ? { name: body.name } : {}), ...(body.folderId !== undefined ? { folderId: body.folderId } : {}) }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
+    const updated = await prisma.file.update({ where: { id: file.id }, data: { ...(body.name ? { name: body.name } : {}), ...(body.folderId !== undefined ? { folderId: body.folderId } : {}), ...(body.starred !== undefined ? { starredAt: body.starred ? file.starredAt ?? new Date() : null } : {}) }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
     await createAuditLog(req.user!.id, 'UPDATE_FILE', 'file', updated.id, { name: updated.name, updates: body })
     return res.json({ file: { ...updated, sizeBytes: updated.sizeBytes.toString() } })
   } catch (error) {
@@ -355,19 +371,6 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
 
-    // Automatically set permission to public writer when retrieving/copying the view URL!
-    try {
-      await drive.permissions.create({
-        fileId: file.providerFileId,
-        requestBody: {
-          role: 'writer',
-          type: 'anyone'
-        }
-      })
-    } catch (err: any) {
-      console.error('Failed to make Google Drive file public during view-url retrieval:', err.message || err)
-    }
-
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
     return res.json({ url: metadata.data.webViewLink ?? metadata.data.webContentLink })
   } catch (error) {
@@ -410,8 +413,9 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     res.setHeader('Content-Disposition', 'attachment; filename="9drive-download.zip"')
 
     const archive = new ZipArchive({ zlib: { level: 9 } })
-    archive.on('error', (err: any) => {
-      throw err
+    archive.on('error', (error: Error) => {
+      if (res.headersSent) res.destroy(error)
+      else next(error)
     })
     archive.pipe(res)
 

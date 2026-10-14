@@ -1,14 +1,15 @@
 import Busboy from 'busboy'
 import type { NextFunction, Response } from 'express'
 import { Router } from 'express'
-import { Readable } from 'stream'
+import { Transform } from 'node:stream'
 import { z } from 'zod'
 import { google } from 'googleapis'
+import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { ensureGoogleAppFolder, getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
-import { buildS3ObjectKey, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
+import { buildS3ObjectKey, createS3Client, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
 import { createAuditLog } from '../../utils/audit.js'
 
 export const uploadRouter = Router()
@@ -146,6 +147,10 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     const uploadOne = async (fieldName: string, fileStream: NodeJS.ReadableStream, info: { filename: string; mimeType: string }) => {
       const meta = metaForFile(fieldName, info)
       const fileName = meta?.fileName || info.filename
+      let uploadSessionId: string | null = null
+      let s3FileId: string | null = null
+      let s3ObjectKey: string | null = null
+      let s3Config: Awaited<ReturnType<typeof getS3ConfigForAccount>> | null = null
       try {
         fileStream.on('limit', () => logUpload('file stream size limit reached', { fileName }))
         if (!meta?.sizeBytes || meta.sizeBytes <= 0n) {
@@ -177,36 +182,36 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         reservedBytesByAccount.set(account.id, (reservedBytesByAccount.get(account.id) ?? 0n) + meta.sizeBytes)
 
         const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, folderId, fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' } })
+        uploadSessionId = session.id
         logUpload('file upload started', { sessionId: session.id, accountId: account.id, fileName, sizeBytes: meta.sizeBytes.toString() })
-        const chunks: Buffer[] = []
-        fileStream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk)
+        let streamedBytes = 0n
+        const uploadStream = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            streamedBytes += BigInt(chunk.length)
+            callback(null, chunk)
+          },
         })
-        await new Promise<void>((resolve, reject) => {
-          fileStream.on('end', resolve)
-          fileStream.on('error', reject)
-        })
-        const fileBuffer = Buffer.concat(chunks)
-        const streamedBytes = BigInt(fileBuffer.length)
+        fileStream.on('error', (error) => uploadStream.destroy(error))
+        fileStream.pipe(uploadStream)
 
         let providerFileId = ''
-        let s3FileId: string | null = null
+        let s3ProvisionalFile: Awaited<ReturnType<typeof prisma.file.create>> | null = null
+        let googleDrive: ReturnType<typeof google.drive> | null = null
         let uploadedName = fileName
         let uploadedMimeType = meta.mimeType
         if (account.provider === 's3') {
-          const config = await getS3ConfigForAccount(account.id, req.user!.id)
-          const provisionalFile = await prisma.file.create({
+          s3Config = await getS3ConfigForAccount(account.id, req.user!.id)
+          s3ProvisionalFile = await prisma.file.create({
             data: { userId: req.user!.id, connectedAccountId: account.id, folderId, provider: 's3', providerFileId: 'pending', name: fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' },
           })
-          s3FileId = provisionalFile.id
-          providerFileId = buildS3ObjectKey(config, req.user!.id, provisionalFile.id, fileName)
-          await uploadS3Object(config, providerFileId, Readable.from(fileBuffer), meta.mimeType)
-          await prisma.file.update({ where: { id: provisionalFile.id }, data: { providerFileId, status: 'active' } })
-          completed.push({ ...provisionalFile, providerFileId, status: 'active', sizeBytes: provisionalFile.sizeBytes.toString() })
+          s3FileId = s3ProvisionalFile.id
+          s3ObjectKey = buildS3ObjectKey(s3Config, req.user!.id, s3ProvisionalFile.id, fileName)
+          providerFileId = s3ObjectKey
+          await uploadS3Object(s3Config, providerFileId, uploadStream, meta.mimeType)
           logUpload('s3 upload completed', { sessionId: session.id, accountId: account.id, fileName })
         } else {
           const auth = await getAuthedGoogleClient(account)
-          const drive = google.drive({ version: 'v3', auth })
+          googleDrive = google.drive({ version: 'v3', auth })
           const appFolderId = await ensureGoogleAppFolder(account)
           let targetParentId = appFolderId
           if (folderId) {
@@ -215,9 +220,9 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
               targetParentId = folderRecord.providerFolderId
             }
           }
-          const uploaded = await drive.files.create({
+          const uploaded = await googleDrive.files.create({
             requestBody: { name: fileName, parents: [targetParentId] },
-            media: { mimeType: meta.mimeType, body: Readable.from(fileBuffer) },
+            media: { mimeType: meta.mimeType, body: uploadStream },
             fields: 'id,name,mimeType,size',
           })
           providerFileId = uploaded.data.id ?? ''
@@ -225,26 +230,20 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           uploadedMimeType = uploaded.data.mimeType ?? meta.mimeType
           logUpload('google upload completed', { sessionId: session.id, accountId: account.id, fileName })
 
-          // Make the file public (anyone with link can edit/download)
-          try {
-            await drive.permissions.create({
-              fileId: providerFileId,
-              requestBody: {
-                role: 'writer',
-                type: 'anyone'
-              }
-            })
-            logUpload('google file permissions set to public writer', { sessionId: session.id, providerFileId })
-          } catch (err: any) {
-            console.error('Failed to make Google Drive file public:', err.message || err)
-          }
         }
 
         if (streamedBytes !== meta.sizeBytes) {
+          if (s3Config && s3ObjectKey) await createS3Client(s3Config).send(new DeleteObjectCommand({ Bucket: s3Config.bucket, Key: s3ObjectKey })).catch(() => undefined)
           if (s3FileId) await prisma.file.update({ where: { id: s3FileId }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined)
+          if (googleDrive && providerFileId) await googleDrive.files.delete({ fileId: providerFileId }).catch(() => undefined)
           await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'failed', errorMessage: 'Streamed byte count did not match declared size.' } })
           failed.push({ fileName, code: 'UPLOAD_SIZE_MISMATCH', message: 'Streamed byte count did not match declared size.' })
           return
+        }
+
+        if (s3ProvisionalFile && s3ObjectKey) {
+          const completedS3File = await prisma.file.update({ where: { id: s3ProvisionalFile.id }, data: { providerFileId: s3ObjectKey, status: 'active' } })
+          completed.push({ ...completedS3File, sizeBytes: completedS3File.sizeBytes.toString() })
         }
 
         const file = account.provider === 's3' ? null : await prisma.file.create({ data: { userId: req.user!.id, connectedAccountId: account.id, folderId, provider: 'google_drive', providerFileId, name: uploadedName, mimeType: uploadedMimeType, sizeBytes: meta.sizeBytes } })
@@ -257,6 +256,14 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         else syncQuotaInBackground(account.id, session.id)
       } catch (error) {
         fileStream.resume()
+        if (s3Config && s3ObjectKey) await createS3Client(s3Config).send(new DeleteObjectCommand({ Bucket: s3Config.bucket, Key: s3ObjectKey })).catch(() => undefined)
+        if (s3FileId) await prisma.file.update({ where: { id: s3FileId }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined)
+        if (uploadSessionId) {
+          await prisma.uploadSession.update({
+            where: { id: uploadSessionId },
+            data: { status: 'failed', errorMessage: error instanceof Error ? error.message : 'Upload failed.' },
+          }).catch(() => undefined)
+        }
         logUpload('file upload failed', { fileName, message: error instanceof Error ? error.message : 'Upload failed' })
         failed.push({ fileName, code: 'UPLOAD_FAILED', message: error instanceof Error ? error.message : 'Upload failed' })
       }
@@ -478,7 +485,6 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
       where: { id: session.targetConnectedAccountId, userId: req.user!.id }
     })
     const auth = await getAuthedGoogleClient(account)
-    const drive = google.drive({ version: 'v3', auth })
     const token = await auth.getAccessToken()
 
     // Stream chunk body from client to Google Drive resumable URI
@@ -501,19 +507,6 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
     if (putRes.ok) {
       // Completed! Parse metadata
       const fileMeta = await putRes.json() as { id: string; name: string; mimeType: string }
-
-      // Make the file public (anyone with link can edit/download)
-      try {
-        await drive.permissions.create({
-          fileId: fileMeta.id,
-          requestBody: {
-            role: 'writer',
-            type: 'anyone'
-          }
-        })
-      } catch (err: any) {
-        console.error('Failed to make Google Drive resumable file public:', err.message || err)
-      }
 
       let existingFile = await prisma.file.findFirst({
         where: { providerFileId: fileMeta.id, userId: req.user!.id }

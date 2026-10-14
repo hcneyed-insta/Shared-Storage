@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { rateLimit } from 'express-rate-limit'
 import { google } from 'googleapis'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
@@ -15,6 +16,13 @@ const registerSchema = z.object({ name: z.string().min(2), email: z.string().ema
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) })
 const refreshSchema = z.object({ refreshToken: z.string().min(1) })
 const googleExchangeSchema = z.object({ token: z.string().min(1) })
+const credentialRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { code: 'AUTH_RATE_LIMITED', message: 'Too many attempts. Try again later.' },
+})
 
 async function createSession(userId: string, req: AuthRequest) {
   const refreshToken = randomToken()
@@ -40,7 +48,7 @@ async function verifyCaptcha(token: string | undefined) {
   return Boolean(data.success)
 }
 
-authRouter.post('/register', async (req, res, next) => {
+authRouter.post('/register', credentialRateLimit, async (req, res, next) => {
   try {
     const body = registerSchema.parse(req.body)
     if (!(await verifyCaptcha(body.captchaToken))) return res.status(400).json({ code: 'CAPTCHA_FAILED', message: 'Captcha verification failed.' })
@@ -54,7 +62,7 @@ authRouter.post('/register', async (req, res, next) => {
   }
 })
 
-authRouter.post('/login', async (req, res, next) => {
+authRouter.post('/login', credentialRateLimit, async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body)
     const user = await prisma.user.findUnique({ where: { email: body.email } })

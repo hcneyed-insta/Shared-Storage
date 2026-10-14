@@ -22,7 +22,7 @@ import type { FileItem, FolderItem } from '@/data/drive-data'
 import { useUpload } from '@/context/UploadContext'
 import { useDriveLayoutActions } from '@/layouts/DriveLayout'
 
-type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
+type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; starredAt?: string | null; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
 type BackendFolder = { id: string; name: string; color: string; iconUrl?: string | null; parentId?: string | null; providerFolderId?: string | null; updatedAt: string }
 type ConnectedAccount = { id: string; provider: string; email: string; displayName?: string | null; status: string }
 
@@ -55,7 +55,7 @@ function providerLabel(provider: string | undefined) {
 }
 
 function mapFile(file: BackendFile): FileItem {
-  return { id: file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt, accountEmail: file.connectedAccount?.email, accountProvider: providerLabel(file.connectedAccount?.provider), date: formatDate(file.createdAt), size: formatBytes(file.sizeBytes), access: file.connectedAccount?.email ?? providerLabel(file.connectedAccount?.provider), kind: mimeToKind(file.mimeType), shared: 1, folderId: file.folderId, folderName: file.folder?.name }
+  return { id: file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt, starredAt: file.starredAt, starredDate: file.starredAt ? formatDate(file.starredAt) : undefined, accountEmail: file.connectedAccount?.email, accountProvider: providerLabel(file.connectedAccount?.provider), date: formatDate(file.createdAt), size: formatBytes(file.sizeBytes), access: file.connectedAccount?.email ?? providerLabel(file.connectedAccount?.provider), kind: mimeToKind(file.mimeType), shared: 1, folderId: file.folderId, folderName: file.folder?.name }
 }
 
 function mapFolder(folder: BackendFolder): FolderItem {
@@ -96,6 +96,8 @@ export function AllFilesPage() {
   const [previewError, setPreviewError] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [files, setFiles] = useState<FileItem[]>([])
+  const [nextFileCursor, setNextFileCursor] = useState<string | null>(null)
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false)
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [allFolders, setAllFolders] = useState<FolderItem[]>([])
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -143,8 +145,12 @@ export function AllFilesPage() {
     localStorage.setItem('9drive:folder-size', scale)
   }
 
-  async function loadFiles() {
+  async function loadFiles(append = false) {
+    if (append && (!nextFileCursor || loadingMoreFiles)) return
+    if (append) setLoadingMoreFiles(true)
     const params = new URLSearchParams()
+    params.set('limit', '100')
+    if (append && nextFileCursor) params.set('cursor', nextFileCursor)
     if (activeFolderId) params.set('folderId', activeFolderId)
     if (searchQuery) params.set('q', searchQuery)
 
@@ -165,8 +171,14 @@ export function AllFilesPage() {
 
     const query = params.toString()
     const path = query ? `/files?${query}` : '/files'
-    const data = await apiFetch<{ files: BackendFile[] }>(path)
-    setFiles(data.files.map(mapFile))
+    try {
+      const data = await apiFetch<{ files: BackendFile[]; nextCursor?: string | null }>(path)
+      const mappedFiles = data.files.map(mapFile)
+      setFiles((current) => append ? [...current, ...mappedFiles] : mappedFiles)
+      setNextFileCursor(data.nextCursor ?? null)
+    } finally {
+      if (append) setLoadingMoreFiles(false)
+    }
   }
 
   async function loadFolders() {
@@ -506,6 +518,18 @@ export function AllFilesPage() {
     await loadFiles()
   }
 
+  async function toggleFileStar(file: FileItem) {
+    if (!file.id) return
+    const response = await apiFetch<{ file: BackendFile }>(`/files/${file.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ starred: !(file.starredAt || file.starredDate) })
+    })
+    const updatedFile = mapFile(response.file)
+    setFiles((current) => current.map((item) => item.id === updatedFile.id ? updatedFile : item))
+    setActiveFile(updatedFile)
+    setContextMenu({ x: 0, y: 0, file: null })
+  }
+
   async function moveFile(event: FormEvent) {
     event.preventDefault()
     const selectedIds = [...selectedFileIds]
@@ -543,17 +567,10 @@ export function AllFilesPage() {
   async function copyShareLinkDirect() {
     if (!activeFile?.id) return
     try {
-      const data = await apiFetch<{ url: string | null }>(`/files/${activeFile.id}/view-url`)
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url)
-        setMessage('Google Drive link copied to clipboard!')
-        setTimeout(() => setMessage(''), 2500)
-      } else {
-        const shareData = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
-        await navigator.clipboard.writeText(shareData.url)
-        setMessage('Share link copied to clipboard!')
-        setTimeout(() => setMessage(''), 2500)
-      }
+      const shareData = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
+      await navigator.clipboard.writeText(shareData.url)
+      setMessage('Share link copied to clipboard!')
+      setTimeout(() => setMessage(''), 2500)
     } catch (err: any) {
       setMessage('Failed to copy link: ' + (err.message || err))
       setTimeout(() => setMessage(''), 2500)
@@ -761,9 +778,10 @@ export function AllFilesPage() {
           )}
         </Card>
       )}
+      {nextFileCursor ? <div className="mt-4 flex justify-center"><Button variant="outline" disabled={loadingMoreFiles} onClick={() => loadFiles(true).catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to load more files'))}>{loadingMoreFiles ? 'Loading...' : 'Load more files'}</Button></div> : null}
       </div>
       <EmptyAreaContextMenu x={emptyContextMenu.x} y={emptyContextMenu.y} open={emptyContextMenu.open} canPasteFolder={Boolean(cutFolder)} onClose={() => setEmptyContextMenu({ x: 0, y: 0, open: false })} onUpload={() => { setUploadOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onCreateFolder={() => { setFolderOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onPasteFolder={() => { pasteFolder().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to paste folder')); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} />
-      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
+      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onToggleStar={() => { if (contextMenu.file) toggleFileStar(contextMenu.file).catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to update star')) }} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
       <FolderContextMenu x={folderContextMenu.x} y={folderContextMenu.y} folder={folderContextMenu.folder} onClose={() => setFolderContextMenu({ x: 0, y: 0, folder: null })} onCut={() => cutSelectedFolder(activeFolderForMenu)} onRename={() => { setFolderRenameValue(activeFolderForMenu?.name ?? ''); setFolderRenameColor(normalizeFolderColor(activeFolderForMenu?.color)); setFolderRenameIconUrl(activeFolderForMenu?.iconUrl ?? defaultFolderIconUrl); setFolderRenameOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} onInvite={inviteToFolder} onCopyLink={copyFolderLink} onDelete={() => { setFolderDeleteOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} />
       <FileDetailsDrawer open={detailOpen} file={activeFile} onClose={() => setDetailOpen(false)} />
 

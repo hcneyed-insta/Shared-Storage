@@ -191,6 +191,15 @@ cd backend
 npm run prisma:migrate
 ```
 
+For an existing production database, apply pending migrations with:
+
+```bash
+cd backend
+npm run db:migrate:deploy
+```
+
+On Render, run this as a pre-deploy command or use `npm run start:deploy` as the service start command. Do not use `prisma:migrate` against production.
+
 If Prisma client generation is blocked on Windows by a running Node process, stop running backend/frontend dev servers and run:
 
 ```bash
