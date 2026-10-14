@@ -1,6 +1,8 @@
 import { app } from './app.js'
 import { env } from './config/env.js'
 
-app.listen(env.APP_PORT, () => {
-  console.log(`Backend running on http://localhost:${env.APP_PORT}`)
+const port = Number(process.env.PORT ?? env.APP_PORT)
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Backend running on port ${port}`)
 })
