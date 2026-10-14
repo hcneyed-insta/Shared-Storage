@@ -28,7 +28,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const [resumableSessions, setResumableSessions] = useState<Record<string, ResumableSession>>({})
 
   async function uploadSingleFileResumable(file: File, folderId: string | null, onProgress: (percent: number) => void, sessionIdToRetry?: string, targetAccountId?: string | null) {
-    const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB chunks (must be multiple of 256KB for Google Drive)
+    const CHUNK_SIZE = 8 * 1024 * 1024 // 8MB chunks reduces outbound round trips while staying within Drive resumable limits
     let sessionId = sessionIdToRetry || ''
     let startOffset = 0
 
@@ -100,7 +100,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   async function uploadFiles(filesToUpload: File[], targetFolderId: string | null, targetAccountId?: string | null) {
     if (filesToUpload.length === 0) return
 
-    // Setup initial status
     setUploadProgress({
       open: true,
       fileName: filesToUpload.length === 1 ? filesToUpload[0].name : `${filesToUpload.length} files`,
@@ -109,41 +108,57 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       files: filesToUpload.map(f => ({ name: f.name, size: f.size, percent: 0, status: 'uploading' }))
     })
 
-    // Upload files sequentially
-    for (let i = 0; i < filesToUpload.length; i++) {
-      const file = filesToUpload[i]
-      try {
-        await uploadSingleFileResumable(file, targetFolderId, (filePercent) => {
+    const workers = Math.min(3, filesToUpload.length)
+    let nextIndex = 0
+
+    const worker = async () => {
+      while (nextIndex < filesToUpload.length) {
+        const fileIndex = nextIndex++
+        const file = filesToUpload[fileIndex]
+
+        try {
+          await uploadSingleFileResumable(file, targetFolderId, (filePercent) => {
+            setUploadProgress((current) => {
+              const nextFiles = [...current.files]
+              if (nextFiles[fileIndex]) {
+                nextFiles[fileIndex] = { ...nextFiles[fileIndex], percent: filePercent, status: filePercent >= 100 ? 'done' : 'uploading' }
+              }
+              const overallPercent = Math.round(nextFiles.reduce((sum, f) => sum + f.percent, 0) / nextFiles.length)
+              return {
+                ...current,
+                percent: overallPercent,
+                files: nextFiles
+              }
+            })
+          }, undefined, targetAccountId)
+        } catch (err) {
+          console.error('File upload failed:', file.name, err)
           setUploadProgress((current) => {
             const nextFiles = [...current.files]
-            if (nextFiles[i]) {
-              nextFiles[i] = { ...nextFiles[i], percent: filePercent, status: filePercent >= 100 ? 'done' : 'uploading' }
+            if (nextFiles[fileIndex]) {
+              nextFiles[fileIndex] = { ...nextFiles[fileIndex], status: 'error' }
             }
-            const overallPercent = Math.round(nextFiles.reduce((sum, f) => sum + f.percent, 0) / nextFiles.length)
             return {
               ...current,
-              percent: overallPercent,
+              status: 'partial',
               files: nextFiles
             }
           })
-        }, undefined, targetAccountId)
-      } catch (err) {
-        console.error('File upload failed:', file.name, err)
-        setUploadProgress((current) => {
-          const nextFiles = [...current.files]
-          if (nextFiles[i]) {
-            nextFiles[i] = { ...nextFiles[i], status: 'error' }
-          }
-          return {
-            ...current,
-            status: 'partial',
-            files: nextFiles
-          }
-        })
+        }
       }
     }
 
-    // Dispatch global events so active pages reload their data
+    await Promise.all(Array.from({ length: workers }, () => worker()))
+
+    setUploadProgress((current) => {
+      const allDone = current.files.length > 0 && current.files.every(file => file.status === 'done')
+      return {
+        ...current,
+        status: allDone ? 'done' : current.status === 'partial' ? 'partial' : 'done',
+        percent: current.files.length > 0 ? Math.round(current.files.reduce((sum, file) => sum + file.percent, 0) / current.files.length) : 100
+      }
+    })
+
     window.dispatchEvent(new Event('9drive:storage-changed'))
     window.dispatchEvent(new Event('9drive:upload-completed'))
   }
